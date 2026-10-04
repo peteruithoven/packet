@@ -240,6 +240,7 @@ mod imp {
             obj.setup_ui();
             obj.setup_connection_monitors();
             obj.setup_notification_actions_monitor();
+            obj.setup_foreground_monitor();
             obj.setup_rqs_service();
             obj.request_background_at_start();
             obj.setup_dbus_api();
@@ -2187,6 +2188,36 @@ impl PacketApplicationWindow {
         true
     }
 
+    /// Keeps the RQS service informed of whether the window is shown (foreground) or not
+    /// (background).
+    ///
+    /// While in the background, rqs_lib duty-cycles its BLE scan for nearby devices, as a
+    /// scan that never stops keeps other Bluetooth devices (keyboards, mice) from
+    /// reconnecting on their own, e.g. after resuming from suspend.
+    fn setup_foreground_monitor(&self) {
+        self.connect_visible_notify(clone!(
+            #[weak(rename_to = this)]
+            self,
+            move |_| {
+                tracing::debug!(
+                    is_foreground = this.is_visible(),
+                    "Window visibility changed"
+                );
+
+                glib::spawn_future_local(clone!(
+                    #[weak]
+                    this,
+                    async move {
+                        if let Some(rqs) = this.imp().rqs.lock().await.as_ref() {
+                            // Check again, it might've changed while waiting for the lock
+                            rqs.set_foreground(this.is_visible());
+                        }
+                    }
+                ));
+            }
+        ));
+    }
+
     fn restart_rqs_service(&self) -> glib::JoinHandle<()> {
         glib::spawn_future_local(clone!(
             #[weak(rename_to = this)]
@@ -2573,6 +2604,9 @@ impl PacketApplicationWindow {
             .settings
             .boolean("enable-static-port")
             .then(|| imp.settings.int("static-port-number") as u32);
+        // Whether the window is shown, see `setup_foreground_monitor`. It's not yet when
+        // starting in the background.
+        let is_foreground = self.is_visible();
         let rqs_init_handle = glib::spawn_future_local(clone!(
             #[weak]
             imp,
@@ -2599,6 +2633,9 @@ impl PacketApplicationWindow {
                                 Some(download_path),
                                 Some(device_name.to_string()),
                             );
+                            // Before running, so that it doesn't start out scanning
+                            // continuously while being in the background
+                            rqs.set_foreground(is_foreground);
 
                             let run_result = rqs.run().await;
                             (rqs, run_result)
@@ -2606,6 +2643,10 @@ impl PacketApplicationWindow {
                         .await?;
 
                     *imp.rqs.lock().await = Some(rqs);
+                    // The window might've been shown or hidden while the service started
+                    if let Some(rqs) = imp.rqs.lock().await.as_ref() {
+                        rqs.set_foreground(imp.obj().is_visible());
+                    }
                     let (mdns_discovery_broadcast_tx, _) =
                         tokio::sync::broadcast::channel::<rqs_lib::EndpointInfo>(10);
                     *imp.mdns_discovery_broadcast_tx.lock().await =

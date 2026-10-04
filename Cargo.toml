@@ -12,7 +12,8 @@ gtk = { version = "0.11", package = "gtk4", features = ["v4_22"] }
 adw = { version = "0.9", package = "libadwaita", features = ["v1_9"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rqs_lib = { git = "https://github.com/nozwock/rquickshare.git", rev = "c9ac93f5584a4265e8da679ad689df5be1e80c6b", default-features = false, features = [
+# TODO: Set back to nozwock/rquickshare once the BLE scan duty-cycling is merged there.
+rqs_lib = { git = "https://github.com/peteruithoven/rquickshare.git", rev = "ce7fc6c8029be10d94fafb9318570809ea7b4e5f", default-features = false, features = [
     "experimental",
 ] }
 better_default = "1.0.5"
